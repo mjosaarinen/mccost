@@ -3,7 +3,7 @@
 
 This file is deliberately self-contained: it imports only Python's standard
 library, opens no challenge input, and writes no files.  It repeats the exact
-integer cell arithmetic, the sparse-supplier gate tally, and the declared
+integer cell arithmetic, the sparse relation-generation gate tally, and the declared
 downstream cost models used in the manuscript.  It is not an implementation of
 the attack.  In particular it does not prove reliable binary Krylov yield,
 Vedenev's higher-flag conjecture for the priced truncated relation block, the
@@ -14,7 +14,7 @@ Frobenius-phase synchronization.
 Typical use::
 
     python3 mccost.py                         # report and internal checks
-    python3 mccost.py --scan mceliece348864   # exhaustive singleton scan
+    python3 mccost.py --scan mceliece348864   # exhaustive one-position hold-out scan
 
 Cost units follow the manuscript.  A 64-bit XOR word operation is 64 Boolean
 gates, and a GF(2^m) multiplication is represented by the optimistic m^2
@@ -289,7 +289,7 @@ def sequence_length(cell: Cell, block_width: int) -> int:
 
 
 def sequence_state_bytes(cell: Cell, block_width: int) -> int:
-    """Retained scalar-sequence floor; recursive PM-Basis scratch is extra."""
+    """Retained scalar-sequence floor; temporary PM-Basis memory is extra."""
     return sequence_length(cell, block_width) * block_width * block_width // 8
 
 
@@ -377,7 +377,7 @@ def pair_alignment_supplier_price(
     solver_attempts: int = 1,
     hermite_margin: int = 1,
 ) -> tuple[float, int, Cell] | None:
-    """Price ``anchors-1`` two-position suppliers on a spanning tree.
+    """Price ``anchors-1`` two-position relation-supply computations.
 
     This prices the proposed source of cross-anchor data; it does not construct
     a map from the two local jet spaces to a nonzero pure cross-pairing.  Thus a
@@ -477,7 +477,8 @@ def price(
 ) -> Price | None:
     """Price one declared model.
 
-    ``charge_pair_alignment`` adds ``c-1`` two-position Holdout suppliers.  A
+    ``charge_pair_alignment`` adds ``c-1`` two-position hold-out relation
+    computations.  A
     displayed pair row sets ``pair_relation_count`` to the exact certified
     block size assumed by CrossPair (by default r_min).  Charging that work does
     not make phase alignment unconditional: the public pure cross-pairing map
@@ -620,7 +621,7 @@ def selected_prices() -> dict[str, dict[str, Price]]:
 
 @lru_cache(maxsize=None)
 def memory_cap_rows(maximum_degree: int = 24) -> tuple[tuple[str, Price], ...]:
-    """Exhaustively minimize the nested/projective lane under four state caps."""
+    """Exhaustively minimize the PGL+nested variant under four state caps."""
     target = TARGETS["mceliece348864"]
     candidates: list[Price] = []
     for d in range(3, maximum_degree + 1):
@@ -792,9 +793,11 @@ def print_report() -> None:
     print("Sparse work charges 64 gates per 64-bit XOR word; GF(2^m)")
     print("multiplication uses the optimistic m^2 AND-gate proxy and omits XORs.")
     print("Memory is reported as log2 bits; an entry 53 means 2^53 bits.")
+    print("Supplier means relation generation producing verified hold-out-kernel relations.")
+    print("In a schedule a@s, a columns are assigned vanishing order s.")
     print("The supplier uses one nominal equal-block Coppersmith attempt per")
     print("required relation batch on A=[[0,M^T],[M,0]]; retries, access,")
-    print("recursive basis scratch are not charged. Every total is conditional.")
+    print("and temporary solver memory are not charged. Every total is conditional.")
 
     target_rows: list[tuple[object, ...]] = []
     for target in TARGETS.values():
@@ -817,7 +820,7 @@ def print_report() -> None:
         "Selected cells and paper headline totals",
         (
             "target", "cat", "(k_l,d,h)", "orders", "c", "log N",
-            "supplier", "affine/dense", "PGL/nested", "state",
+            "supplier", "affine+dense", "PGL+nested", "state",
         ),
         target_rows,
     )
@@ -875,7 +878,7 @@ def print_report() -> None:
         ))
     _print_table(
         "mceliece348864 anchor ladder",
-        ("c", "(k_l,d)", "supplier", "affine guesses", "dense total", "nested total", "state"),
+        ("c", "(k_l,d)", "supplier", "affine guesses", "affine+dense", "PGL+nested", "state"),
         ladder_rows,
     )
 
@@ -891,7 +894,7 @@ def print_report() -> None:
         for label, got in memory_cap_rows()
     ]
     _print_table(
-        "Exhaustive mceliece348864 nested/projective optima under state caps",
+        "Exhaustive mceliece348864 PGL+nested optima under state caps",
         ("cap", "(c,k_l,d)", "b", "organization", "total", "state"),
         cap_rows,
     )
@@ -959,7 +962,7 @@ def print_report() -> None:
             _power_of_two_bits(charged.state_bytes),
         ))
     _print_table(
-        "Conditional cost of proposed pair suppliers",
+        "Conditional cost of proposed two-position relation supply",
         ("c", "k_l", "b", "no align", "align omitted", "pair supply", "charged", "increment", "state"),
         phase_charge_rows,
     )
@@ -984,7 +987,7 @@ def print_report() -> None:
             _power_of_two_bits(got.state_bytes),
         ))
     _print_table(
-        "Exact multi-holdout cover arithmetic (flag richness remains assumed)",
+        "Exact multi-position hold-out cover arithmetic (flag richness remains assumed)",
         ("held/kernel", "kernels", "kernel floor", "supplier", "delta", "state"),
         lever_rows,
     )
@@ -1044,7 +1047,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
         "--scan", choices=tuple(TARGETS),
-        help="exhaustively minimize the complete width-64 singleton supplier cost",
+        help="exhaustively minimize the complete width-64 one-position relation-generation cost",
     )
     parser.add_argument("--maximum-degree", type=int, default=24)
     args = parser.parse_args()
