@@ -1,23 +1,23 @@
-# Bit Operation Costing for Classic McEliece Key-Recovery Attacks — Artifact
+# Bit Operation Cost of "Holdout" Key-Recovery Attacks Against Classic McEliece -- Artifact
 
 This repository accompanies the paper:
 
 > Markku-Juhani O. Saarinen.  
-> **Bit Operation Cost of ``Holdout'' Key-Recovery
+> **Bit Operation Cost of "Holdout" Key-Recovery
 Attacks Against Classic McEliece**.  
-> IACR Cryptology ePrint Archive, Report 2026/XXXX, 2026.  
-> <https://eprint.iacr.org/2026/XXXX>
+> IACR Cryptology ePrint Archive, Report 2026/1786, 2026.  
+> <https://eprint.iacr.org/2026/1786>
 
 Local preprint copy: [mccost.pdf](mccost.pdf).
 
 ```bibtex
-@misc{cryptoeprint:2026/XXXX,
+@misc{cryptoeprint:2026/1786,
       author = {Markku-Juhani O. Saarinen},
       title = {Bit Operation Cost of ``Holdout'' Key-Recovery
 Attacks Against Classic McEliece},
-      howpublished = {Cryptology {ePrint} Archive, Paper 2026/XXXX},
+      howpublished = {Cryptology {ePrint} Archive, Paper 2026/1786},
       year = {2026},
-      url = {https://eprint.iacr.org/2026/XXXX}
+      url = {https://eprint.iacr.org/2026/1786}
 }
 ```
 
@@ -111,8 +111,6 @@ Use `python3 mccost.py --help` for the complete command-line interface.
   tuples.
 - No binary key material, challenge input, experimental scratch data, or large
   generated files are shipped.
-- The paper is a living costing document; the `XXXX` ePrint placeholder should
-  be replaced when the report number is assigned.
 
 ## License
 
