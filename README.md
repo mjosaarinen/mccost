@@ -10,6 +10,9 @@ Attacks Against Classic McEliece**.
 
 Local preprint copy: [mccost.pdf](mccost.pdf).
 
+This is a living costing paper: estimates and assumption boundaries may evolve
+through dated revisions, while the published paper title remains fixed.
+
 ```bibtex
 @misc{cryptoeprint:2026/1786,
       author = {Markku-Juhani O. Saarinen},
@@ -26,22 +29,30 @@ Attacks Against Classic McEliece},
 | Path | Purpose |
 | --- | --- |
 | [`mccost.pdf`](mccost.pdf) | Rendered paper PDF shipped with the artifact. |
-| [`mccost.py`](mccost.py) | Self-contained arithmetic, parameter-search, and bit-cost model that reproduces the paper's numerical calculations. |
+| [`mccost.py`](mccost.py) | Self-contained arithmetic, parameter-search, and bit-cost model that reproduces the paper's numerical calculations and the distinct published conditional rank-two baseline discussed below. |
 
 The Python program independently repeats the exact integer cell arithmetic,
 point-block rank and kernel-floor calculations, sparse relation-generation
 work, active retained-state accounting, declared downstream cost models, and
 the bounded parameter searches used in the paper. It also reports joint cell
 optima, relation-block-size sensitivities, Apon's correct-leaf bounds, and a
-separately priced continuation envelope.
+separately priced continuation envelope. It also independently reconstructs
+the five published GhIsJa+26 rank-two baseline rows from their homogeneous-jet
+dimensions, predicted rank margins, sparse locator systems, shortening covers,
+and block-Lanczos cost formula. The default report keeps the two routes and
+their assumptions separate.
 
-This is an auditable costing model, not an implementation of the proposed
-key-recovery attack. In particular, it does not prove reliable binary Krylov
-yield, sufficient relation-block richness or higher-order derivative recovery
-at target scale, generic wrong-leaf rank, success of the public-column list
-problem, compatible affine normalization, common-kernel richness, binary
-reconstruction, the public pure cross-pairing needed for phase
-synchronization, or a target-scale sparse-solver backend.
+This is an auditable costing model, not an implementation of either
+key-recovery route. For the singleton hold-out route, it does not prove reliable
+binary Krylov yield, sufficient relation-block richness or higher-order
+derivative recovery at target scale, generic wrong-leaf rank, success of the
+public-column list problem, compatible affine normalization, common-kernel
+richness, binary reconstruction, the public pure cross-pairing needed for phase
+synchronization, or a target-scale sparse-solver backend. Reproducing the
+rank-two arithmetic does not establish its canonical-form and rank-one-rigidity
+conjectures, predicted global and projected ranks, reliable sparse-solver model,
+or a functional implementation. The unitemized optimized estimate announced
+in GhIsJa+26 Remark 7.3 is not included.
 
 ## Requirements
 
@@ -69,7 +80,10 @@ bounds, sparse nonzero count, padded or fallback augmented solver shape,
 Krylov application count, relation batches, work components, and active-state
 components. It then reproduces the paper's selected-cell and jointly optimized
 tables, relation-block-size sensitivity, Apon bounds, continuation envelope,
-and other declared model sensitivities.
+and other declared model sensitivities. A distinct conditional-route tally
+compares those singleton subtotals with the independently reconstructed
+GhIsJa+26 rank-two baseline and explicitly refuses an unqualified best-attack
+claim.
 
 ## Parameter searches
 
@@ -119,10 +133,13 @@ Use `python3 mccost.py --help` for the complete command-line interface.
   bound as `M` and requires one sparse traversal. The augmented operator is
   only a fallback when padding is unavailable. The model exposes but does not
   bound the small-field failure probability or expected retry count.
-- Every primary accounted subtotal stops at candidate interpolation. The
+- Every primary singleton-route subtotal stops at candidate interpolation. The
   program reports one fail-closed list-problem continuation attempt separately;
   its target-scale success and generic rejection of wrong leaves remain
   heuristic.
+- The distinct rank-two rows reproduce a published conditional recovery model,
+  not a measured or independently implemented attack. Their conjectures and
+  predicted-rank conditions are not shared with the singleton subtotals.
 - Values below a NIST category comparator are conditional cost-model outputs,
   not claims that a Classic McEliece key has been recovered.
 

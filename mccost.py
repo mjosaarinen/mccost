@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Self-contained arithmetic and bit-cost model for Classic McEliece.
+"""Self-contained arithmetic and bit-cost models for Classic McEliece.
 
 This file is deliberately self-contained: it imports only Python's standard
 library, opens no challenge input, and writes no files.  It repeats the exact
@@ -23,6 +23,14 @@ priced relation block, binary reconstruction, cross-anchor independence,
 common-kernel richness, or the public pure cross-pairing needed for
 Frobenius-phase synchronization.
 
+The report also independently reconstructs the published conditional
+GhIsJa+26 rank-two baseline from its homogeneous-jet dimensions, predicted
+global and projected ranks, sparse locator system, shortening cover, and
+block-Lanczos formula.  Those rows are conditional on the source paper's
+Conjectures C.2 and C.3 and rank forecasts.  Reproducing their arithmetic is
+not a functional implementation of that recovery algorithm, and the
+unitemized optimized estimate announced in its Remark 7.3 is not included.
+
 Typical use::
 
     python3 mccost.py                         # report and internal checks
@@ -42,7 +50,7 @@ from dataclasses import dataclass, replace
 from fractions import Fraction
 from functools import lru_cache
 from itertools import combinations
-from math import ceil, comb, log2
+from math import ceil, comb, floor, fsum, log, log2
 
 
 NIST_BIT_OPERATION_THRESHOLDS = {
@@ -51,6 +59,15 @@ NIST_BIT_OPERATION_THRESHOLDS = {
 PIB = 1 << 50
 EIB = 1 << 60
 BRANCH_EXTRACTION_TRIALS = 64
+RANK_TWO_SOURCE_BINDING = "ghisja26_eprint_2026_1630_v2_20260827T152720Z"
+RANK_TWO_EPRINT_VERSION = "20260827:152720"
+RANK_TWO_SOURCE_TITLE = (
+    "Quasipolynomial Cryptanalysis of the McEliece Cryptosystem "
+    "(or: PIR Meets McEliece)"
+)
+RANK_TWO_HOLDOUT_MULTIPLICITY = 5
+RANK_TWO_HOLDOUTS = 4
+RANK_TWO_EXPECTED_SCAN_MULTIPLIER = 1.0 + 0.01 + 0.01**2
 
 
 @dataclass(frozen=True)
@@ -171,6 +188,72 @@ class RelationBlockSensitivity:
     relation_generation_log2: float
     total_log2: float
     state_bytes: int
+
+
+@dataclass(frozen=True)
+class RankTwoBaselineCell:
+    """One published GhIsJa+26 v2 Section-7.4 rank-two cell."""
+
+    target: str
+    shortening: int
+    degree: int
+    profile: tuple[tuple[int, int], ...]
+    reported_log2: float
+
+    @property
+    def n_l(self) -> int:
+        return TARGETS[self.target].n - self.shortening
+
+    @property
+    def k_l(self) -> int:
+        target = TARGETS[self.target]
+        return target.n - target.m * target.t - self.shortening
+
+    @property
+    def D_l(self) -> int:
+        target = TARGETS[self.target]
+        return self.n_l - 2 * target.t - 1
+
+
+@dataclass(frozen=True)
+class RankTwoBaselinePrice:
+    """Independently reconstructed published conditional rank-two price."""
+
+    cell: RankTwoBaselineCell
+    jet_columns: int
+    polynomial_dimension: int
+    hilbert_coefficient: int
+    predicted_random_nullity: int
+    predicted_rank: int
+    rank_margin: int
+    minimum_projected_margin: int
+    equations: int
+    unknowns: int
+    matrix_nonzeros_bound: int
+    cover_executions: int
+    locator_systems: int
+    locator_log2_extension_field_operations: float
+    log2_bit_operations: float
+    conditional: bool = True
+
+
+RANK_TWO_BASELINE_CELLS = (
+    RankTwoBaselineCell(
+        "mceliece348864", 2569, 7, ((5, 42), (6, 877)), 130.38,
+    ),
+    RankTwoBaselineCell(
+        "mceliece460896", 3159, 8, ((5, 4), (6, 177), (7, 1268)), 148.95,
+    ),
+    RankTwoBaselineCell(
+        "mceliece6688128", 4802, 7, ((5, 35), (6, 1851)), 141.28,
+    ),
+    RankTwoBaselineCell(
+        "mceliece6960119", 5198, 7, ((5, 24), (6, 1738)), 140.45,
+    ),
+    RankTwoBaselineCell(
+        "mceliece8192128", 6306, 7, ((5, 35), (6, 1851)), 141.60,
+    ),
+)
 
 def _require_positive(name: str, value: int) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
@@ -340,6 +423,249 @@ def holdout_cell(
 def _logsum2(*exponents: float) -> float:
     peak = max(exponents)
     return peak + log2(sum(2.0 ** (value - peak) for value in exponents))
+
+
+def rank_two_jet_columns(
+    k_l: int, profile: tuple[tuple[int, int], ...],
+) -> int:
+    """Number of homogeneous jet columns in GhIsJa+26 Equation (11)."""
+    return sum(count * comb(k_l + multiplicity - 1, multiplicity - 1)
+               for multiplicity, count in profile)
+
+
+@lru_cache(maxsize=None)
+def rank_two_froberg_hilbert_coefficient(
+    k_l: int, degree: int, profile: tuple[tuple[int, int], ...],
+) -> int:
+    """Positive-truncated Fröberg coefficient used in the rank forecast."""
+    numerator = [0] * (degree + 1)
+    numerator[0] = 1
+    for multiplicity, count in profile:
+        exponent = degree - multiplicity + 1
+        if exponent <= 0:
+            raise ValueError("profile multiplicity must not exceed the degree")
+        updated = [0] * (degree + 1)
+        for base_degree, coefficient in enumerate(numerator):
+            if coefficient == 0:
+                continue
+            for chosen in range(degree // exponent + 1):
+                target_degree = base_degree + chosen * exponent
+                if target_degree > degree:
+                    break
+                updated[target_degree] += (
+                    coefficient * (-1 if chosen & 1 else 1) * comb(count, chosen)
+                )
+        numerator = updated
+
+    truncated = False
+    coefficient_at_degree = 0
+    for current_degree in range(degree + 1):
+        coefficient = sum(
+            numerator[index]
+            * comb(k_l + current_degree - index - 1, current_degree - index)
+            for index in range(current_degree + 1)
+        )
+        if truncated or coefficient <= 0:
+            truncated = True
+            coefficient = 0
+        if current_degree == degree:
+            coefficient_at_degree = coefficient
+    return coefficient_at_degree
+
+
+def rank_two_random_nullity(
+    k_l: int, degree: int, profile: tuple[tuple[int, int], ...],
+) -> tuple[int, int, int, int]:
+    """Return predicted random nullity, jet columns, monomials, and Hilbert term."""
+    jet_columns = rank_two_jet_columns(k_l, profile)
+    polynomial_dimension = comb(k_l + degree - 1, degree)
+    hilbert = rank_two_froberg_hilbert_coefficient(k_l, degree, profile)
+    return (
+        jet_columns - polynomial_dimension + hilbert,
+        jet_columns,
+        polynomial_dimension,
+        hilbert,
+    )
+
+
+def rank_two_locator_block_size(k_l: int, multiplicity: int) -> int:
+    """Locator-coordinate block size in GhIsJa+26 Equation (12)."""
+    start = multiplicity - RANK_TWO_HOLDOUT_MULTIPLICITY + 1
+    return sum(
+        comb(k_l + order - 1, order)
+        for order in range(max(0, start), multiplicity)
+    )
+
+
+def _rank_two_harmonic(number: int) -> float:
+    """Stable harmonic-number evaluation for the inherited Lanczos model."""
+    if number <= 0:
+        raise ValueError("harmonic index must be positive")
+    if number < 100_000:
+        return fsum(1.0 / value for value in range(1, number + 1))
+    gamma = 0.5772156649015328606
+    inverse = 1.0 / number
+    return (
+        log(number) + gamma + inverse / 2.0 - inverse**2 / 12.0
+        + inverse**4 / 120.0
+    )
+
+
+def rank_two_expected_preconditioner_nonzeros(
+    polynomial_dimension: int, row_count: int,
+) -> float:
+    """Expected preconditioner nonzeros under the Table-2-calibrated convention.
+
+    The displayed GhIsJa+26 Table 2 rows place the padding contribution outside
+    the ``(N+J)`` multiplier, as implemented here.  The typeset equation appears
+    to put it inside.  That alternative shifts the reconstructed Table-3
+    exponents by less than 0.002 bits and changes none of their displayed
+    two-decimal values; the separate research audit records both conventions.
+    """
+    if not 0 < row_count < polynomial_dimension:
+        raise ValueError("preconditioner model requires 0 < rows < dimension")
+    log_dimension = log2(polynomial_dimension)
+    cutoff = min(row_count, floor(6.0 * log_dimension))
+    harmonic_tail = 0.0
+    if cutoff < row_count:
+        harmonic_tail = _rank_two_harmonic(row_count) - _rank_two_harmonic(cutoff)
+    probability_sum = cutoff / 2.0 + 3.0 * log_dimension * harmonic_tail
+    return (
+        (polynomial_dimension + row_count) * probability_sum
+        + ceil(2.0 * log_dimension) / 2.0
+    )
+
+
+def rank_two_lanczos_operation_count(
+    *, polynomial_dimension: int, row_count: int,
+    augmented_matrix_nonzeros: int,
+) -> float:
+    """GhIsJa+26 reliable block-Lanczos extension-field operation envelope."""
+    if augmented_matrix_nonzeros <= 0:
+        raise ValueError("matrix nonzero count must be positive")
+    padded = row_count + ceil(2.0 * log2(polynomial_dimension))
+    right_block = 572 + 16 + 1
+    left_block = right_block + 2 * (ceil(log2(padded)) + 18)
+    krylov_products = 5 * padded + 3 * right_block + 4 * left_block
+    preconditioner_nonzeros = rank_two_expected_preconditioner_nonzeros(
+        polynomial_dimension, row_count,
+    )
+    matvec_operations = 2.0 * (
+        augmented_matrix_nonzeros + preconditioner_nonzeros
+    )
+    return (
+        krylov_products * matvec_operations
+        + (72 * left_block + 8) * padded**2
+        + (112 * left_block**2 + 5184) * padded
+    )
+
+
+def rank_two_baseline_price(cell: RankTwoBaselineCell) -> RankTwoBaselinePrice:
+    """Reconstruct one published conditional GhIsJa+26 rank-two row."""
+    target = TARGETS[cell.target]
+    profile = cell.profile
+    if sum(count for _multiplicity, count in profile) != cell.n_l:
+        raise ValueError("rank-two profile length differs from n_l")
+    required_total = (
+        cell.degree * cell.D_l + 1 - target.t + RANK_TWO_HOLDOUT_MULTIPLICITY
+    )
+    if sum(multiplicity * count for multiplicity, count in profile) != required_total:
+        raise ValueError("rank-two profile violates the binary-Goppa no-slack equation")
+    if min(multiplicity for multiplicity, _count in profile) < (
+        RANK_TWO_HOLDOUT_MULTIPLICITY
+    ):
+        raise ValueError("rank-two profile multiplicity is below the hold-out order")
+    if max(multiplicity for multiplicity, _count in profile) > cell.degree:
+        raise ValueError("rank-two profile multiplicity exceeds the degree")
+
+    random_nullity, jet_columns, polynomial_dimension, hilbert = (
+        rank_two_random_nullity(cell.k_l, cell.degree, profile)
+    )
+    structured_excess = (
+        target.m * RANK_TWO_HOLDOUT_MULTIPLICITY + target.m - 1
+    )
+    predicted_rank = jet_columns - (random_nullity + structured_excess)
+    rank_margin = polynomial_dimension - predicted_rank
+
+    projected_margins = []
+    for multiplicity, _count in profile:
+        adjusted = dict(profile)
+        adjusted[multiplicity] -= 1
+        replacement = multiplicity - RANK_TWO_HOLDOUT_MULTIPLICITY + 1
+        adjusted[replacement] = adjusted.get(replacement, 0) + 1
+        adjusted_profile = tuple(sorted(
+            (item_multiplicity, count)
+            for item_multiplicity, count in adjusted.items()
+            if count
+        ))
+        adjusted_nullity, _M, _N, _H = rank_two_random_nullity(
+            cell.k_l, cell.degree, adjusted_profile,
+        )
+        local_rank = random_nullity - adjusted_nullity
+        projected_rank = local_rank + structured_excess
+        projected_margins.append(
+            rank_two_locator_block_size(cell.k_l, multiplicity) - projected_rank
+        )
+
+    holdout_block = comb(
+        cell.k_l + RANK_TWO_HOLDOUT_MULTIPLICITY - 1,
+        RANK_TWO_HOLDOUT_MULTIPLICITY - 1,
+    )
+    locator_blocks = tuple(
+        rank_two_locator_block_size(cell.k_l, multiplicity)
+        for multiplicity, _count in profile
+    )
+    largest_locator_block = max(locator_blocks)
+    unknowns = 2 * jet_columns
+    equations = (
+        2 * polynomial_dimension
+        + RANK_TWO_HOLDOUTS * (holdout_block - 1)
+        + 1 + largest_locator_block
+    )
+    jet_weight = sum(
+        count * sum(comb(cell.degree, order) for order in range(multiplicity))
+        for multiplicity, count in profile
+    )
+    normalization_entries = (
+        RANK_TWO_HOLDOUTS * (holdout_block - 1) + 1 + largest_locator_block
+    )
+    nonzeros = 2 * polynomial_dimension * jet_weight + 2 * normalization_entries
+    locator_operations = rank_two_lanczos_operation_count(
+        polynomial_dimension=unknowns,
+        row_count=equations,
+        augmented_matrix_nonzeros=nonzeros,
+    )
+    cover = ceil(
+        (target.n - RANK_TWO_HOLDOUTS) / (cell.n_l - RANK_TWO_HOLDOUTS)
+    )
+    systems = cover * (cell.n_l + 1) * ((1 << target.m) + 1)
+    total = (
+        RANK_TWO_EXPECTED_SCAN_MULTIPLIER * target.m**2
+        * systems * locator_operations
+    )
+    return RankTwoBaselinePrice(
+        cell=cell,
+        jet_columns=jet_columns,
+        polynomial_dimension=polynomial_dimension,
+        hilbert_coefficient=hilbert,
+        predicted_random_nullity=random_nullity,
+        predicted_rank=predicted_rank,
+        rank_margin=rank_margin,
+        minimum_projected_margin=min(projected_margins),
+        equations=equations,
+        unknowns=unknowns,
+        matrix_nonzeros_bound=nonzeros,
+        cover_executions=cover,
+        locator_systems=systems,
+        locator_log2_extension_field_operations=log2(locator_operations),
+        log2_bit_operations=log2(total),
+    )
+
+
+def rank_two_baseline_prices() -> dict[str, RankTwoBaselinePrice]:
+    """Return the five independently reconstructed published baseline rows."""
+    return {cell.target: rank_two_baseline_price(cell)
+            for cell in RANK_TWO_BASELINE_CELLS}
 
 
 def resolve_operator_kind(cell: Cell, operator_kind: str = "auto") -> str:
@@ -1294,6 +1620,45 @@ def internal_checks() -> None:
     assert NIST_BIT_OPERATION_THRESHOLDS == {
         1: 143.0, 2: 146.0, 3: 207.0, 4: 210.0, 5: 272.0,
     }
+    assert RANK_TWO_SOURCE_BINDING == (
+        "ghisja26_eprint_2026_1630_v2_20260827T152720Z"
+    )
+    assert RANK_TWO_EPRINT_VERSION == "20260827:152720"
+    assert RANK_TWO_SOURCE_TITLE == (
+        "Quasipolynomial Cryptanalysis of the McEliece Cryptosystem "
+        "(or: PIR Meets McEliece)"
+    )
+    rank_two_expected = {
+        "mceliece348864": (
+            815_496_128_413, 1_267_729_188_264,
+            2_095_371_202, 12_846_537, 130.38,
+        ),
+        "mceliece460896": (
+            151_750_260_798_283, 258_607_050_562_756,
+            48_432_702_303, 45_084_703, 148.95,
+        ),
+        "mceliece6688128": (
+            11_586_519_351_014, 17_795_316_080_640,
+            20_711_818_637, 59_849_346, 141.28,
+        ),
+        "mceliece6960119": (
+            9_287_018_469_789, 14_264_993_356_992,
+            19_250_380_541, 52_685_180, 140.45,
+        ),
+        "mceliece8192128": (
+            11_586_519_351_014, 17_795_316_080_640,
+            20_711_818_637, 59_849_346, 141.60,
+        ),
+    }
+    for name, got in rank_two_baseline_prices().items():
+        equations, unknowns, rank_margin, projected_margin, published = (
+            rank_two_expected[name]
+        )
+        assert got.equations == equations
+        assert got.unknowns == unknowns
+        assert got.rank_margin == rank_margin
+        assert got.minimum_projected_margin == projected_margin
+        assert abs(got.log2_bit_operations - published) < 0.005
     for k in range(3, 32):
         assert strict_profile_condition_count(k) == comb(k, 2)
         assert indexed_filtration_condition_count(k, tuple(range(1, k))) == comb(k, 2)
@@ -1586,6 +1951,50 @@ def print_report() -> None:
         ),
         joint_rows,
     )
+
+    rank_two_rows: list[tuple[object, ...]] = []
+    rank_two = rank_two_baseline_prices()
+    for target in TARGETS.values():
+        baseline = rank_two[target.name]
+        fixed = joint_fixed[target.name]
+        _, wide = jointly_optimized_price(
+            target, normalization="affine", solve="dense", wide=True,
+        )
+        numerical_minimum = (
+            "singleton one-batch subtotal"
+            if wide.total_log2 < baseline.log2_bit_operations
+            else "rank-two conditional baseline"
+        )
+        rank_two_rows.append((
+            target.name,
+            f"{baseline.log2_bit_operations:.2f}",
+            f"{fixed.total_log2:.2f}",
+            f"{fixed.total_log2 - baseline.log2_bit_operations:+.2f}",
+            f"{wide.total_log2:.2f}",
+            f"{wide.total_log2 - baseline.log2_bit_operations:+.2f}",
+            numerical_minimum,
+        ))
+    _print_table(
+        "Distinct conditional-route tally",
+        (
+            "target", "rank-two", "singleton b=64", "gap",
+            "singleton one-batch", "gap", "lowest displayed number",
+        ),
+        rank_two_rows,
+    )
+    print(
+        "Rank-two arithmetic is independently reconstructed from GhIsJa+26 v2 "
+        "and remains conditional on C.2, C.3, and its predicted ranks."
+    )
+    print(
+        f"Rank-two source: {RANK_TWO_SOURCE_TITLE}, ePrint 2026/1630 "
+        f"version {RANK_TWO_EPRINT_VERSION}."
+    )
+    print(
+        "Singleton entries are incomplete subtotals through interpolation; the "
+        "numerical minimum is therefore not an unqualified best-attack bound."
+    )
+    print("The unitemized Remark-7.3 below-2^128 announcement is not included.")
 
     richness_rows: list[tuple[object, ...]] = []
     category_one = TARGETS["mceliece348864"]
