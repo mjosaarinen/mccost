@@ -15,7 +15,7 @@ superseded cost models nor exploratory parameter searches.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from math import comb, log2
+from math import ceil, comb, log2
 import sys
 
 
@@ -93,22 +93,22 @@ class Shape:
 class Estimate:
     shape: Shape
     solver_field_degree: int
-    field_multiply_bit_upper: int
-    field_multiply_add_bit_upper: int
-    normal_product_bit_upper: int
-    per_system_bit_upper: int
-    all_systems_bit_upper: int
-    label_selection_bit_upper: int
-    finisher_bit_upper: int
-    total_bit_upper: int
-    total_log2_bit_upper: float
+    field_multiply_bit_estimate: int
+    field_multiply_add_bit_estimate: int
+    normal_product_bit_estimate: int
+    per_system_bit_estimate: int
+    all_systems_bit_estimate: int
+    label_selection_bit_estimate: int
+    finisher_bit_estimate: int
+    total_bit_estimate: int
+    total_log2_bit_estimate: float
     aggregate_solver_failure_log2: float
-    active_state_bits_upper: int
-    active_state_log2_bits_upper: float
+    active_state_bits_estimate: int
+    active_state_log2_bits_estimate: float
     margin_below_category_threshold_bits: float
 
 
-def field_multiply_bit_upper(degree: int) -> int:
+def field_multiply_bit_estimate(degree: int) -> int:
     """Schoolbook polynomial-basis multiplication, in elementary gates."""
 
     if degree <= 0:
@@ -116,10 +116,10 @@ def field_multiply_bit_upper(degree: int) -> int:
     return 3 * degree * degree - 3 * degree + 1
 
 
-def field_multiply_add_bit_upper(degree: int) -> int:
+def field_multiply_add_bit_estimate(degree: int) -> int:
     """One multiplication followed by one field addition."""
 
-    return field_multiply_bit_upper(degree) + degree
+    return field_multiply_bit_estimate(degree) + degree
 
 
 def locator_block_size(k_l: int, multiplicity: int) -> int:
@@ -137,6 +137,21 @@ def system_shape(cell: Cell) -> Shape:
 
     n_l = cell.shortened_length
     k_l = cell.shortened_dimension
+    if HOLDOUT_MULTIPLICITY <= 2:
+        raise ValueError("holdout multiplicity must exceed two")
+    locator_power = HOLDOUT_MULTIPLICITY - 1
+    if locator_power & (locator_power - 1):
+        raise ValueError("holdout multiplicity minus one must be a power of two")
+    if cell.relation_degree <= HOLDOUT_MULTIPLICITY:
+        raise ValueError("relation degree must exceed the holdout multiplicity")
+    if sum(
+        count
+        for multiplicity, count in cell.multiplicity_profile
+        if multiplicity == HOLDOUT_MULTIPLICITY
+    ) < HOLDOUTS:
+        raise ValueError("multiplicity profile has too few holdout coordinates")
+    if cell.public_length > cell.field_order:
+        raise ValueError("binary Goppa support is larger than the base field")
     if sum(count for _multiplicity, count in cell.multiplicity_profile) != n_l:
         raise ValueError("multiplicity profile length differs from the chart")
     ambient_degree = n_l - 2 * cell.goppa_degree - 1
@@ -193,8 +208,8 @@ def system_shape(cell: Cell) -> Shape:
     )
 
 
-def finisher_bit_upper(shape: Shape) -> int:
-    """Finite known-point completion and projective-recharting ceiling."""
+def finisher_bit_estimate(shape: Shape) -> int:
+    """Estimate known-point completion and projective recharting."""
 
     cell = shape.cell
     labels = shape.required_label_count
@@ -206,7 +221,7 @@ def finisher_bit_upper(shape: Shape) -> int:
     return field_operations * (
         2
         * cell.extension_degree
-        * field_multiply_bit_upper(cell.extension_degree)
+        * field_multiply_bit_estimate(cell.extension_degree)
     )
 
 
@@ -220,8 +235,8 @@ def price(cell: Cell, field_degree: int) -> Estimate:
             "solver field degree must be a positive multiple of the base degree"
         )
 
-    multiply = field_multiply_bit_upper(delta)
-    multiply_add = field_multiply_add_bit_upper(delta)
+    multiply = field_multiply_bit_estimate(delta)
+    multiply_add = field_multiply_add_bit_estimate(delta)
     normal_product = (
         2 * shape.binary_jet_nonzeros * delta
         + (
@@ -233,7 +248,7 @@ def price(cell: Cell, field_degree: int) -> Estimate:
     )
     recurrence = (17 * shape.unknowns + 4 * delta + 3) * multiply_add
     initialization = (20 * shape.unknowns + 4 * delta + 3) * multiply_add
-    base_multiply_add = field_multiply_add_bit_upper(cell.extension_degree)
+    base_multiply_add = field_multiply_add_bit_estimate(cell.extension_degree)
     replay = (
         shape.binary_jet_nonzeros * cell.extension_degree
         + shape.generic_auxiliary_nonzeros * base_multiply_add
@@ -256,7 +271,7 @@ def price(cell: Cell, field_degree: int) -> Estimate:
     label_selection = cell.shortened_length * (
         shape.selected_parity_rank**2 + shape.selected_parity_rank
     )
-    finisher = finisher_bit_upper(shape)
+    finisher = finisher_bit_estimate(shape)
     total = all_systems + label_selection + finisher
 
     solver_field_order = 1 << delta
@@ -275,18 +290,18 @@ def price(cell: Cell, field_degree: int) -> Estimate:
     return Estimate(
         shape=shape,
         solver_field_degree=delta,
-        field_multiply_bit_upper=multiply,
-        field_multiply_add_bit_upper=multiply_add,
-        normal_product_bit_upper=normal_product,
-        per_system_bit_upper=per_system,
-        all_systems_bit_upper=all_systems,
-        label_selection_bit_upper=label_selection,
-        finisher_bit_upper=finisher,
-        total_bit_upper=total,
-        total_log2_bit_upper=total_log2,
+        field_multiply_bit_estimate=multiply,
+        field_multiply_add_bit_estimate=multiply_add,
+        normal_product_bit_estimate=normal_product,
+        per_system_bit_estimate=per_system,
+        all_systems_bit_estimate=all_systems,
+        label_selection_bit_estimate=label_selection,
+        finisher_bit_estimate=finisher,
+        total_bit_estimate=total,
+        total_log2_bit_estimate=total_log2,
         aggregate_solver_failure_log2=log2(aggregate_failure),
-        active_state_bits_upper=state,
-        active_state_log2_bits_upper=log2(state),
+        active_state_bits_estimate=state,
+        active_state_log2_bits_estimate=log2(state),
         margin_below_category_threshold_bits=(
             cell.category_bit_threshold - total_log2
         ),
@@ -305,7 +320,7 @@ def optimized_estimate(cell: Cell) -> Estimate:
         raise ArithmeticError("no reliable solver field through degree 780")
     return min(
         admitted,
-        key=lambda value: (value.total_bit_upper, value.solver_field_degree),
+        key=lambda value: (value.total_bit_estimate, value.solver_field_degree),
     )
 
 
@@ -364,12 +379,12 @@ def internal_checks() -> None:
         if exact != (equations, unknowns, systems, labels, solver_degree):
             raise AssertionError(f"{name}: exact dimensions or solver degree changed")
         rounded = (
-            round(value.total_log2_bit_upper, 2),
-            round(value.active_state_log2_bits_upper, 2),
+            round(value.total_log2_bit_estimate, 2),
+            round(value.active_state_log2_bits_estimate, 2),
             round(value.aggregate_solver_failure_log2, 2),
         )
         if rounded != (work, state, failure):
-            raise AssertionError(f"{name}: reported ledger changed")
+            raise AssertionError(f"{name}: reported tally changed")
         predecessor = price(shape.cell, solver_degree - shape.cell.extension_degree)
         if predecessor.aggregate_solver_failure_log2 < -128:
             raise AssertionError(f"{name}: predecessor field unexpectedly qualifies")
@@ -378,14 +393,14 @@ def internal_checks() -> None:
 
     first = values[0]
     exact_category_one = {
-        "field_multiply_bit_upper": 172_081,
-        "field_multiply_add_bit_upper": 172_321,
-        "normal_product_bit_upper": 43_357_797_573_481_659_425,
-        "per_system_bit_upper": 38_386_671_446_795_679_851_939_170_117_672,
-        "all_systems_bit_upper": 144_688_577_484_120_148_325_123_197_574_334_009_280,
-        "finisher_bit_upper": 27_017_420_898_816_121_210_159_497_216,
-        "total_bit_upper": 144_688_577_511_137_569_223_939_318_785_036_260_544,
-        "active_state_bits_upper": 2_825_868_988_017_600,
+        "field_multiply_bit_estimate": 172_081,
+        "field_multiply_add_bit_estimate": 172_321,
+        "normal_product_bit_estimate": 43_357_797_573_481_659_425,
+        "per_system_bit_estimate": 38_386_671_446_795_679_851_939_170_117_672,
+        "all_systems_bit_estimate": 144_688_577_484_120_148_325_123_197_574_334_009_280,
+        "finisher_bit_estimate": 27_017_420_898_816_121_210_159_497_216,
+        "total_bit_estimate": 144_688_577_511_137_569_223_939_318_785_036_260_544,
+        "active_state_bits_estimate": 2_825_868_988_017_600,
     }
     for name, wanted in exact_category_one.items():
         if getattr(first, name) != wanted:
@@ -400,10 +415,11 @@ def report(values: tuple[Estimate, ...]) -> None:
     for value in values:
         cell = value.shape.cell
         category = f"{cell.claimed_category} / 2^{cell.category_bit_threshold}"
-        work = f"2^{value.total_log2_bit_upper:.2f}"
-        state = f"2^{value.active_state_log2_bits_upper:.2f} bits"
+        work = f"2^{value.total_log2_bit_estimate:.2f}"
+        state = f"2^{value.active_state_log2_bits_estimate:.2f} bits"
         field = f"GF(2^{value.solver_field_degree})"
-        failure = f"<2^{value.aggregate_solver_failure_log2:.2f}"
+        failure_exponent = ceil(100 * value.aggregate_solver_failure_log2) / 100
+        failure = f"<2^{failure_exponent:.2f}"
         print(
             f"{cell.name:<19} {category:<19} {work:<9} {state:<14} "
             f"{field:<13} {failure:<14} "
